@@ -1,9 +1,11 @@
 use slug::slugify;
-use std::io;
+use std::io::{self, Write};
 use std::error::Error;
 use std::thread;
 use std::sync::mpsc;
 use std::str::FromStr;
+use std::fs;
+use unicode_segmentation::UnicodeSegmentation;
 
 
 enum Command {
@@ -49,7 +51,7 @@ fn main() {
     let (sender, receiver) = mpsc::channel::<Command>();
     let handle = thread::spawn(move || {
         if let Err(e) = reader_loop(sender) {
-            eprintln!("ERROR: {}", e);
+            eprintln!("ERROR_1: {}", e);
         };
     });
 
@@ -59,7 +61,7 @@ fn main() {
             println!("Quitting...");
         },
         Err(e) => {
-            eprintln!("ERROR: {}", e);
+            eprintln!("ERROR_2: {}", e);
         }
     }
     
@@ -182,5 +184,40 @@ fn transform_emphasize(input_str: &String) -> Result<String, Box<dyn Error>> {
 
 
 fn transform_csv(input_str: &String) -> Result<String, Box<dyn Error>> {
-    Ok(String::from(input_str))
+    let csv_file_contents = fs::read_to_string(input_str)?;
+    let mut parsed_csv: Vec<Vec<&str>> = Vec::new();
+    for row in csv_file_contents.lines() {
+        parsed_csv.push(row.split(",").collect());
+    }
+    
+    // Check if equal n of items in each row.
+    // Also, get the length of the longest item.
+    let columns_n = parsed_csv[0].len();
+    let mut max_len = 0;
+    for row in parsed_csv.iter() {
+        if row.len() != columns_n {
+            return Err("The csv file has an incorrect structure!".into());
+        }
+        for item in row.iter() {
+            let item_len = item.graphemes(true).count();
+            if item_len > max_len {
+                max_len = item_len;
+            }
+        }
+    }
+    let column_width = max_len + 3;
+
+    // Produce the output string.
+    let mut output_str = String::new();
+    for row in parsed_csv.iter() {
+        output_str.push_str(&format!("{}\n", "-".repeat(columns_n*(column_width + 1) + 1)));
+        output_str.push_str("|");
+        for item in row.iter() {
+            output_str.push_str(&format!("{:>width$}|", item, width = column_width));
+        }
+        output_str.push_str("\n");
+    }
+    output_str.push_str(&format!("{}\n", "-".repeat(columns_n*(column_width + 1) + 1)));
+
+    Ok(output_str)
 }

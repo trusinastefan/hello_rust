@@ -304,8 +304,8 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     // If no address specified by user, use the default address.
     let socket_address: &str;
-    if args.len() == 4 && args[3] == "--address" {
-        socket_address = &args[2];
+    if args.len() == 4 && args[2] == "--address" {
+        socket_address = &args[3];
     } else {
         socket_address = "127.0.0.1:11111";
     }

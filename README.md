@@ -53,7 +53,7 @@ cargo run -p client -- --address <socket_address>
 
 You do not have to specify socket_address. In that case, a default loopback address is used, namely "127.0.0.1:11111". The socket_address must be the same address as the one on which the server is listening.
 
-USING THE CHAT APPLICATION
+USING THE CHAT APPLICATION  
 To use the app, at least two clients should be connected to server. After a client app is started, it is waiting for user commands. There are four types of commands:
 
 1. ".file <path>" command: If a user input starts with ".file ", it is supposed that the rest of the input represents a path to a file. If it is indeed a valid path, the file is sent to all other connected clients and saved to directory "./files". This directory must already exist.

@@ -10,20 +10,21 @@ use chrono::Local;
 use serde_cbor::{to_vec, from_slice};
 use std::time::Duration;
 use log::{info, error};
+use anyhow::{Context, Result, anyhow};
 
 use shared::{receive_bytes, send_bytes, MessageType};
 
 /// This is the main client function.
 /// Its main thread waits for a user input and sends it to server.
 /// Another spawned thread listens on a socket for incoming messages and prints them in console.
-fn run_client(socket_address: &str) -> Result<(), Box<dyn Error>> {
+fn run_client(socket_address: &str) -> Result<()> {
     // A shared variable. If user types .quit, this variable is set to false.
     let continue_running: Arc<Mutex<bool>> = Arc::new(Mutex::new(true));
     let continue_running_cloned = Arc::clone(&continue_running);
-    let stream = TcpStream::connect(socket_address)?;
+    let stream = TcpStream::connect(socket_address).context("Failed to connect to a server.")?;
     // Reading will timeout regularly so that the "receiver" thread can check regularly the value of continue_running.
-    stream.set_read_timeout(Some(Duration::from_secs(1)))?;
-    let stream_cloned = stream.try_clone()?;
+    stream.set_read_timeout(Some(Duration::from_secs(1))).context("Failed to set read timeout.")?;
+    let stream_cloned = stream.try_clone().context("Failed to clone TcpStream.")?;
     
     // This thread will handle data received through stream.
     let handle = thread::spawn(move || {
@@ -160,64 +161,33 @@ fn prepare_data_based_on_user_input(user_input: String) -> Result<Vec<u8>, Box<d
 
 
 /// If the user's command is of type ".file", create a MessageType object of type File.
-fn get_file_message(user_input: String) -> Result<MessageType, Box<dyn Error>> {
-    let path_str = match user_input.strip_prefix(".file ") {
-        Some(p) => p,
-        None => {
-            return Err("Could not strip prefix!".into());
-        }
-    };
+fn get_file_message(user_input: String) -> Result<MessageType> {
+    let path_str = user_input.strip_prefix(".file ").ok_or_else(|| anyhow!("Failed to strip the '.file' prefix."))?;
+    
+    let bytes = fs::read(path_str).context("Failed to read file.")?;
 
-    let bytes = match fs::read(path_str) {
-        Ok(b) => b,
-        Err(_e) => {
-            return Err("Cannot read the file!".into());
-        }
-    };
-
-    let file_name = match Path::new(path_str).file_name() {
-        Some(n) => n.to_string_lossy().into_owned(),
-        None => {
-            return Err("Cannot parse file name!".into());
-        }
-    };
-
+    let file_name = Path::new(path_str).file_name().context("Failed to parse filename.")?;
+    let file_name = file_name.to_string_lossy().into_owned();
+    
     Ok(MessageType::File(file_name, bytes))
 }
 
 
 /// If a user's command is of type ".image", create a MessageType object of type Image.
-fn get_image_message(user_input: String) -> Result<MessageType, Box<dyn Error>> {
-    let path_str = match user_input.strip_prefix(".image ") {
-        Some(p) => p,
-        None => {
-            return Err("Could not strip prefix!".into());
-        }
-    };
+fn get_image_message(user_input: String) -> Result<MessageType> {
+    let path_str = user_input.strip_prefix(".image ").ok_or_else(|| anyhow!("Failed to strip the '.image' prefix."))?;
 
-    match Path::new(path_str).extension() {
-        Some(e) => {
-            if e != "png" {
-                return Err("The file's extention is not png'!".into());
-            }
-        },
-        None => {
-            return Err("Cannot parse file name!".into());
-        }
-    };
+    if "png" != Path::new(path_str).extension().ok_or_else(|| anyhow!("Cannot parse extention from filename."))? {
+        return Err(anyhow!("The file's extention is not '.png'."));
+    }
 
-    let bytes = match fs::read(path_str) {
-        Ok(b) => b,
-        Err(_e) => {
-            return Err("Cannot read the file!".into());
-        }
-    };
-    
+    let bytes = fs::read(path_str).context("Failed to read file.")?;
+
     Ok(MessageType::Image(bytes))
 }
 
 
-fn main() {
+fn main() -> Result<()> {
     env_logger::init();
 
     let matches = Command::new("Client")
@@ -225,15 +195,11 @@ fn main() {
         .arg(arg!(--address <SOCKET>).default_value("127.0.0.1:11111"))
         .get_matches();
 
-    let socket_address = matches.get_one::<String>("address").expect("There is always a value.");
+    let socket_address = matches.get_one::<String>("address").ok_or_else(|| anyhow!("There is always a value."))?;
 
-    info!("Starting client!");
-    match run_client(socket_address) {
-        Ok(()) => {
-            info!("Exiting client!");
-        },
-        Err(e) => {
-            error!("{}", e);
-        }
-    }
+    info!("Starting client...");
+    run_client(socket_address).context("Client stopped running because of an error.")?;
+    info!("Exiting client!...");
+
+    Ok(())
 }

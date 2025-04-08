@@ -54,4 +54,4 @@ pub mod utils {
 }
 
 
-pub use utils::{MessageType, receive_bytes, send_bytes};
+pub use utils::{MessageType, receive_bytes, send_bytes, BytesSendReceiveError};

@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;

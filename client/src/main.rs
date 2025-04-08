@@ -2,7 +2,6 @@ use std::fs::{self, File};
 use std::net::TcpStream;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::error::Error;
 use std::{io, thread};
 use std::io::Write;
 use clap::{arg, Command};
@@ -12,7 +11,7 @@ use std::time::Duration;
 use log::{info, error};
 use anyhow::{Context, Result, anyhow};
 
-use shared::{receive_bytes, send_bytes, MessageType};
+use shared::{receive_bytes, send_bytes, MessageType, BytesSendReceiveError};
 
 /// This is the main client function.
 /// Its main thread waits for a user input and sends it to server.
@@ -27,7 +26,7 @@ fn run_client(socket_address: &str) -> Result<()> {
     let stream_cloned = stream.try_clone().context("Failed to clone TcpStream.")?;
     
     // This thread will handle data received through stream.
-    let handle = thread::spawn(move || {
+    let handle = thread::spawn(move || -> Result<()> {
         
         // In the loop, it regularly tries to read from stream.
         loop {
@@ -40,43 +39,30 @@ fn run_client(socket_address: &str) -> Result<()> {
                 },
                 
                 // Check continue_running.
-                Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {
-                    match continue_running_cloned.lock() {
-                        Ok(lock) => {
-                            if *lock == false {
-                                break;
-                            }
-                        },
-                        Err(e) => {
-                            error!("{}", e);
-                            break;
-                        }
+                Err(BytesSendReceiveError::ReceiveTimeout(_e)) => {
+                    let lock = continue_running_cloned.lock().map_err(|e| anyhow!("Lock failed: {}", e))?;
+                    if !(*lock) {
+                        break;
                     }
                 },
 
                 Err(e) => {
-                    error!("{}", e);
-                    break;
+                    return Err(e.into());
                 }
             };
-        }
+        };
+        Ok(())
     });
 
     // Loop for getting user input and sending data according to this input.
     loop {
         // Get input.
-        let user_input = get_line_from_user()?;
+        let user_input = get_line_from_user().context("Failed to get user input.")?;
 
         // The .quit commands causes the client program to quit.
         if user_input.trim() == ".quit" {
-            match continue_running.lock() {
-                Ok(mut lock) => {
-                    *lock = false;
-                },
-                Err(e) => {
-                    error!("{}", e);
-                }
-            }
+            let mut lock = continue_running.lock().map_err(|e| anyhow!("Lock failed: {}", e))?;
+            *lock = false;
             break;
         }
 
@@ -84,48 +70,42 @@ fn run_client(socket_address: &str) -> Result<()> {
         let bytes = match prepare_data_based_on_user_input(user_input) {
             Ok(b) => b,
             Err(e) => {
-                error!("{}", e);
+                error!("There was a problem processing user input: {}", e);
                 continue;
             }
         };
 
         // Send bytes - direction server.
-        if let Err(e) = send_bytes(&stream_cloned, &bytes) {
-            error!("{}", e);
-            break;
-        }
-    }
-
-    if let Err(_e) = handle.join() {
-        error!("Error encountered when joining threads in client!");
-    }
+        send_bytes(&stream_cloned, &bytes).context("Failed to send message.")?;
+    };
+    let _ = handle.join().map_err(|e| anyhow!("Error occured in spawned thread: {:?}", e))?;
     Ok(())
 }
 
 
 /// Get user input from stdin.
-fn get_line_from_user() -> Result<String, Box<dyn Error>> {
+fn get_line_from_user() -> Result<String> {
     let mut input_str = String::new();
-    io::stdin().read_line(&mut input_str)?;
+    io::stdin().read_line(&mut input_str).context("Failed to read from standard input.")?;
     Ok(input_str.trim().to_string())
 }
 
 
 /// Function for handling received data.
-fn handle_received_data_in_client(received_bytes: &Vec<u8>) -> Result<(), Box<dyn Error>> {
-    let message: MessageType = from_slice(received_bytes)?;
+fn handle_received_data_in_client(received_bytes: &Vec<u8>) -> Result<()> {
+    let message: MessageType = from_slice(received_bytes).context("Failed to turn bytes into MessageType.")?;
     
     // The incomming message can have three types.
     match message {
         MessageType::File(name, bytes) => {
             println!("Receiving {}", &name);
-            save_file("files".to_string(), name, bytes)?;
+            save_file("files".to_string(), name, bytes).context("Failed to save file to directory 'files'.")?;
         },
         MessageType::Image(bytes) => {
             println!("Receiving image ...");
             let now = Local::now().format("%Y_%m_%d_%H_%M_%S").to_string();
             let name = format!("{}.png", now);
-            save_file("images".to_string(), name, bytes)?;
+            save_file("images".to_string(), name, bytes).context("Failed to save '.png' image to directory 'images'.")?;
         },
         MessageType::Text(text) => {
             println!("{}", text);
@@ -137,25 +117,25 @@ fn handle_received_data_in_client(received_bytes: &Vec<u8>) -> Result<(), Box<dy
 
 
 /// Create a file and write bytes to it.
-fn save_file(dir: String, name: String, bytes: Vec<u8>) -> Result<(), Box<dyn Error>> {
-    let mut file = File::create(format!("{}\\{}", dir, name))?;
-    file.write(&bytes)?;
+fn save_file(dir: String, name: String, bytes: Vec<u8>) -> Result<()> {
+    let mut file = File::create(format!("{}\\{}", dir, name)).context("Failed to create file.")?;
+    file.write(&bytes).context("Failed to write bytes into file.")?;
     Ok(())
 }
 
 
 /// Based on what user typed into stdin, create a MessageType object and serialize it.
-fn prepare_data_based_on_user_input(user_input: String) -> Result<Vec<u8>, Box<dyn Error>> {
+fn prepare_data_based_on_user_input(user_input: String) -> Result<Vec<u8>> {
     let message: MessageType;
     if user_input.starts_with(".file ") {
-        message = get_file_message(user_input)?;
+        message = get_file_message(user_input).context("The '.file' command seems to be invalid.")?;
     } else if user_input.starts_with(".image ") {
-        message = get_image_message(user_input)?;
+        message = get_image_message(user_input).context("The '.image' command seems to be invalid.")?;
     } else {
         message = MessageType::Text(user_input);
     }
 
-    let bytes = to_vec(&message)?;
+    let bytes = to_vec(&message).context("Failed to turn message into a vector of bytes.")?;
     Ok(bytes)
 }
 
@@ -163,9 +143,7 @@ fn prepare_data_based_on_user_input(user_input: String) -> Result<Vec<u8>, Box<d
 /// If the user's command is of type ".file", create a MessageType object of type File.
 fn get_file_message(user_input: String) -> Result<MessageType> {
     let path_str = user_input.strip_prefix(".file ").ok_or_else(|| anyhow!("Failed to strip the '.file' prefix."))?;
-    
     let bytes = fs::read(path_str).context("Failed to read file.")?;
-
     let file_name = Path::new(path_str).file_name().context("Failed to parse filename.")?;
     let file_name = file_name.to_string_lossy().into_owned();
     

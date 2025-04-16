@@ -1,5 +1,6 @@
 mod db;
 
+use server::password_hashing;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
@@ -10,11 +11,9 @@ use clap::{arg, Command};
 use log::{info, error};
 use anyhow::{Context, Result, anyhow};
 use sqlx::SqlitePool;
-use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
-use argon2::Argon2;
-use rand::rngs::OsRng;
 
-use shared::{MessageType,  receive_bytes, send_bytes, receive_message, send_message};
+use shared::{MessageType, receive_message, send_message};
+use server::password_hashing::{hash_password, verify_password};
 
 
 type SharedWriteHalf = Arc<Mutex<OwnedWriteHalf>>;
@@ -240,37 +239,6 @@ async fn login(connection_pool: &SqlitePool, username: &String, password: &Strin
         }
     }
 
-}
-
-
-/// Hash password.
-async fn hash_password(password: &String) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    let argon2 = Argon2::default();
-    let password_hash = match argon2.hash_password(password.as_bytes(), &salt) {
-        Ok(password_hash) => password_hash.to_string(),
-        Err(e) => {
-            return Err(anyhow!("Failed to hash password: {}", e));
-        }
-    };
-    Ok(password_hash)
-}
-
-
-/// Verify a password against some hashed password.
-async fn verify_password(password: &String, password_hash: &String) -> Result<()> {
-    let parsed_hash = match PasswordHash::new(password_hash) {
-        Ok(parsed_hash) => parsed_hash,
-        Err(e) => {
-            return Err(anyhow!("Failed to parse hashed password: {}", e));
-        }
-    };
-    match Argon2::default().verify_password(password.as_bytes(), &parsed_hash) {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            return Err(anyhow!("Failed to verify password: {}", e));
-        }
-    }
 }
 
 

@@ -9,7 +9,7 @@ pub mod utils {
     
     
     /// This type is used to wrap data sent to server and other clients.
-    #[derive(Serialize, Deserialize)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
     pub enum MessageType {
         Text(String),
         Image(Vec<u8>),

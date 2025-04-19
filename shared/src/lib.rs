@@ -9,6 +9,11 @@ pub mod utils {
     
     
     /// This type is used to wrap data sent to server and other clients.
+    /// Text is for sending pure text.
+    /// Image is for sending .png files.
+    /// File is for sending files with their names.
+    /// AuthRequest is for sending auth request from client to server.
+    /// AuthResponse is for sending auth reply from server to client.
     #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
     pub enum MessageType {
         Text(String),
@@ -19,7 +24,7 @@ pub mod utils {
     }
 
 
-    ///
+    /// Custom error for signalizing problem in functions for sending and receiving bytes.
     #[derive(Error, Debug)]
     pub enum BytesSendReceiveError {
         #[error("Sending bytes failed.")]
@@ -29,7 +34,8 @@ pub mod utils {
     }
 
 
-    /// This function uses stream to receive data and save them in a vector of bytes.
+    /// Uses stream to receive data sent to a socket.
+    /// It saves them in a vector of bytes and returnes them.
     pub async fn receive_bytes(stream_reader: &mut OwnedReadHalf) -> Result<Vec<u8>, BytesSendReceiveError> {
         let mut bytes_len_buf = [0u8; 4];
         stream_reader.read_exact(&mut bytes_len_buf).await.map_err(BytesSendReceiveError::ReceiveFailed)?;
@@ -40,7 +46,7 @@ pub mod utils {
     }
 
 
-    /// This function receives an array of bytes and sends them using stream.
+    /// Send an array of bytes to a socket using stream.
     pub async fn send_bytes(stream_writer: &mut OwnedWriteHalf, bytes: &[u8]) -> Result<(), BytesSendReceiveError> {
         let len = bytes.len() as u32;
         stream_writer.write(&len.to_be_bytes()).await.map_err(BytesSendReceiveError::SendFailed)?;

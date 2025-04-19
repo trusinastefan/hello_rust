@@ -5,7 +5,7 @@ pub mod password_hashing {
     use anyhow::{Result, anyhow};
 
 
-    /// Hash password.
+    /// Hash password using argon2 and return the hash.
     pub async fn hash_password(password: &String) -> Result<String> {
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();

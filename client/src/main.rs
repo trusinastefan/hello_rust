@@ -157,6 +157,9 @@ async fn get_line_from_user() -> Result<String> {
 
 
 /// Function for handling received data.
+/// If the message is of type File, save the file to directory "file" and print a message.
+/// If the message is of type Image, save the .png image to directory "image" and print a message.
+/// If the message is of type Text, only print out the message.
 async fn handle_received_data_in_client(message: MessageType) -> Result<()> {
     
     // The behaviour will be based on the message type.
@@ -182,7 +185,7 @@ async fn handle_received_data_in_client(message: MessageType) -> Result<()> {
 }
 
 
-/// Create a file and write bytes to it.
+/// Create a file and write bytes into it.
 async fn save_file(dir: String, name: String, bytes: Vec<u8>) -> Result<()> {
     let mut file = File::create(format!("{}\\{}", dir, name)).await.context("Failed to create file.")?;
     file.write(&bytes).await.context("Failed to write bytes into file.")?;
@@ -206,6 +209,7 @@ async fn prepare_message_based_on_user_input(user_input: String) -> Result<Messa
 
 
 /// If the user's command is of type ".file", create a MessageType object of type File.
+/// This type contains a file name and the whole contents of the file as bytes.
 async fn get_file_message(user_input: String) -> Result<MessageType> {
     let path_str = user_input.strip_prefix(".file ").ok_or_else(|| anyhow!("Failed to strip the '.file' prefix."))?;
     let bytes = fs::read(path_str).await.context("Failed to read file.")?;
@@ -217,6 +221,8 @@ async fn get_file_message(user_input: String) -> Result<MessageType> {
 
 
 /// If a user's command is of type ".image", create a MessageType object of type Image.
+/// This type contains only the contents of the file as bytes.
+/// The image files that this message type transports are only those of type ".png".
 async fn get_image_message(user_input: String) -> Result<MessageType> {
     let path_str = user_input.strip_prefix(".image ").ok_or_else(|| anyhow!("Failed to strip the '.image' prefix."))?;
 

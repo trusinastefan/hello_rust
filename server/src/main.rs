@@ -1,18 +1,18 @@
-mod db;
-
 use anyhow::{anyhow, Context, Result};
-use clap::{arg, Command};
+use clap::{Arg, Command};
 use log::{error, info};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
 use server::password_hashing::{hash_password, verify_password};
+use server::http_server::run_http_server;
 use shared::{receive_message, send_message, MessageType};
+use server::db;
 
 type SharedWriteHalf = Arc<Mutex<OwnedWriteHalf>>;
 
@@ -329,34 +329,94 @@ async fn remove_client_writer(
 async fn main() -> Result<()> {
     env_logger::init();
 
-    // Create a database connection pool.
-    let database_url = "sqlite://server/chat_app_data.db";
-    let connection_pool = db::create_connection_pool(database_url)
-        .await
-        .context("Failed to create connection pool.")?;
-
     // Process command line arguments.
     let matches = Command::new("Server")
         .about("Runs server")
-        .arg(arg!(--address <SOCKET>).default_value("127.0.0.1:11111"))
+        .arg(
+            Arg::new("chat-socket")
+            .short('c')
+            .long("chat-socket")
+            .value_name("CHAT_SOCKET")
+            .default_value("0.0.0.0:11111")
+            .help("Socket on which the chat server should listen for incomming client connections.")
+        )
+        .arg(
+            Arg::new("http-socket")
+            .short('w')
+            .long("http-socket")
+            .value_name("HTTP_SOCKET")
+            .default_value("0.0.0.0:80")
+            .help("HTTP socket through which chat server admin page can be accessed.")
+        )
+        .arg(
+            Arg::new("db-file")
+            .short('d')
+            .long("db-file")
+            .value_name("DB_FILE")
+            .default_value("server/chat_app_data.db")
+            .help("Path to a '.db' file containing chat server sqlite database.")
+        )
+        .arg(
+            Arg::new("static-dir")
+            .short('s')
+            .long("static-dir")
+            .value_name("STATIC_DIR")
+            .default_value("server/static")
+            .help("Directory containing 'index.html' file.")
+        )
         .get_matches();
-    let socket_address = matches
-        .get_one::<String>("address")
-        .ok_or_else(|| anyhow!("There is always a value."))?;
+    let chat_socket_address = matches
+        .get_one::<String>("chat-socket")
+        .ok_or_else(|| anyhow!("There is always a value."))?
+        .clone();
+    let http_socket_address = matches
+        .get_one::<String>("http-socket")
+        .ok_or_else(|| anyhow!("There is always a value."))?
+        .clone();
+    let db_file = matches
+        .get_one::<String>("db-file")
+        .ok_or_else(|| anyhow!("There is always a value."))?
+        .clone();
+    let static_dir = matches
+        .get_one::<String>("static-dir")
+        .ok_or_else(|| anyhow!("There is always a value."))?
+        .clone();
 
-    // Run server.
-    info!("Starting server...");
-    run_server(socket_address, connection_pool)
+    // Create a database connection pool.
+    let database_url = format!("sqlite://{}", db_file);
+    let connection_pool_http_server = db::create_connection_pool(&database_url)
         .await
-        .context("Server stopped running because of an error.")?;
-    info!("Exiting server...");
+        .context("Failed to create connection pool.")?;
+    let connection_pool_chat_server = connection_pool_http_server.clone();
+
+    // Run http server.
+    let http_task = tokio::spawn(
+        async move {
+            info!("Starting http server...");
+            if let Err(e) = run_http_server(&http_socket_address, connection_pool_http_server, &static_dir).await {
+                    error!("HTTP server failed: {}", e);
+                };
+            info!("Exiting http server...");
+        }
+    );
+    
+    // Run chat server.
+    let chat_task = tokio::spawn(async move {
+        info!("Starting chat server...");
+        if let Err(e) = run_server(&chat_socket_address, connection_pool_chat_server).await {
+            error!("Chat server failed: {}", e);
+        };
+        info!("Exiting chat server...");
+    });
+    
+    tokio::try_join!(http_task, chat_task)?;
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
+    use tokio::net::TcpStream;
 
     use super::*;
 

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        DELETE FROM messages\n        WHERE user_id = ?\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "ae8af540b23672acf0959e16a389e11ed2fa109aad94f31d5438e55364b6fcfb"
+}

@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.97"
 argon2 = "0.5.3"
+axum = "0.8.3"
 clap = "4.5.34"
 env_logger = "0.11.7"
 log = "0.4.27"
@@ -13,3 +14,4 @@ rand = { version = "0.8", features = ["std"] }
 shared = { path = "../shared" }
 sqlx = { version = "0.8.3", features = ["sqlite", "runtime-tokio-rustls", "macros"] }
 tokio = { version = "1.44.2", features = ["full"] }
+tower-http = { version = "0.6.2" , features = ["fs"] }

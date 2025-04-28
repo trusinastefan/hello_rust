@@ -1,9 +1,9 @@
-RUST CHAT APP PROJECT  
+# RUST CHAT APP PROJECT  
 
-DESCRIPTION  
+### DESCRIPTION  
 This is a basic chat application project written in Rust. It contains code for both server and client. The project was implemented for the Rust programming course organised by Robot Dreams and Braiins.
 
-STRUCTURE  
+### STRUCTURE  
 Root workspace contains three crates: client, server and shared. It has the following structure:
 
 ```
@@ -41,7 +41,7 @@ The 'tests' directory contains server crate integration tests.
 Both of these crates use functionalities implemented in the shared library crate.
 The 'tests' directory contains shared crate integration tests.
 
-BUILDING THE PROJECT  
+### BUILDING THE PROJECT  
 You can download and build the project by following these instructions:
 
 ```
@@ -73,7 +73,7 @@ Build the project:
 cargo build --release
 ```
 
-RUNNING SERVER  
+### RUNNING SERVER  
 Before any client instances are started, a server needs to be running and listening on a socket. The server can be started by running the following command from the project root:
 
 ```
@@ -87,7 +87,7 @@ The 'HTTP_SOCKET' flag specifies through which socket an admin page can be acces
 The 'DB_FILE' flag specifies the '.db' file containing sqlite database. The default value is 'server/chat_app_data.db'.
 The 'STATIC_DIR' flag specifies the 'static' directory which contains file 'index.html'. The default value is 'server/static'.
 
-RUNNING CLIENT  
+### RUNNING CLIENT  
 Clients can be run if server is listening for connections. A client instance can be started by running the following command:
 
 ```
@@ -98,7 +98,7 @@ The application can also be run without using cargo by replacing 'cargo run -p c
 The value of the 'CHAT_SOCKET' flag must be the same socket address as the one on which the server is listening. This flag is required.
 After a client is started, user is prompted to choose if he wants to login or register and then to type his username and password. Registered user passwords are saved in database. If a user tries to register with a username that already exists, client will exit. If a user tries to login with incorrect username or password, client will exit.
 
-USING THE CHAT APPLICATION  
+### USING THE CHAT APPLICATION  
 To use the app and see how it works, at least two clients should be connected to server. After a client app is started, it is waiting for user commands. There are four types of commands:
 
 1. ".file <path>" command: If a user input starts with ".file ", it is supposed that the rest of the input represents a path to a file. If it is indeed a valid path, the file is sent to all other connected clients and saved into directory "./files". This directory must already exist.
@@ -109,12 +109,19 @@ To use the app and see how it works, at least two clients should be connected to
 
 4. All other strings will be sent as strings to all other connected clients and printed in their console.
 
-SERVER ADMIN PAGE  
+### SERVER ADMIN PAGE  
 When server is started, in addition to its other functionalities, it also runs an HTTP server at port 80. This HTTP server serves an admin page. On this page, it is possible to select from existing users and either delete that user or show all messages sent by that user. The messages are taken from database and the user deletion removes a user and all associated messages from the database.
 
-TESTING  
+### TESTING  
 All tests can be executed by running the following command from the project root:
 
 ```
 cargo test
 ```
+
+### PROMETHEUS INTEGRATION  
+The application provides '/metrics' endpoint on port 80 through which Prometheus can obtain collected metrics. There are two metrics provided:
+
+1. messages_counter: This metric counts the number of messages sent through the server.
+
+2. active_connections_gauge: This metric represents the number of currently active client connections.

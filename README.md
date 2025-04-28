@@ -125,3 +125,10 @@ The application provides `/metrics` endpoint on port 80 through which Prometheus
 1. `messages_counter`: This metric counts the number of messages sent through the server.
 
 2. `active_connections_gauge`: This metric represents the number of currently active client connections.
+
+### LOGGING  
+Both client and server parts of this project use a logging library and provide `info` and `error` log messages. To see these messages in console, set the `RUST_LOG` environment variable to `info`. On Windows, this would be:
+
+```
+$Env:RUST_LOG = "info"
+```

@@ -10,6 +10,7 @@ axum = "0.8.3"
 clap = "4.5.34"
 env_logger = "0.11.7"
 log = "0.4.27"
+prometheus = "0.14.0"
 rand = { version = "0.8", features = ["std"] }
 shared = { path = "../shared" }
 sqlx = { version = "0.8.3", features = ["sqlite", "runtime-tokio-rustls", "macros"] }

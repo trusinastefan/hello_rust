@@ -1,16 +1,18 @@
-mod db;
-
 use anyhow::{anyhow, Context, Result};
-use clap::{arg, Command};
+use clap::{Arg, Command};
 use log::{error, info};
+use prometheus::{Counter, Gauge, Registry};
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
+use server::db;
+use server::http_server::run_http_server;
+use server::metrics::{get_active_connections_gauge, get_messages_counter};
 use server::password_hashing::{hash_password, verify_password};
 use shared::{receive_message, send_message, MessageType};
 
@@ -19,7 +21,12 @@ type SharedWriteHalf = Arc<Mutex<OwnedWriteHalf>>;
 /// This function runs server.
 /// It listens for connections from clients in a loop.
 /// Each time a client connects, a new async task is spawned that handles that connection.
-async fn run_server(socket_address: &str, connection_pool: SqlitePool) -> Result<()> {
+async fn run_server(
+    socket_address: &str,
+    connection_pool: SqlitePool,
+    messages_counter: &Counter,
+    active_connections_gauge: &Gauge,
+) -> Result<()> {
     let listener = TcpListener::bind(socket_address)
         .await
         .context("TcpListener failed to bind to a socket address.")?;
@@ -39,12 +46,18 @@ async fn run_server(socket_address: &str, connection_pool: SqlitePool) -> Result
         {
             let mut lock = client_writers.lock().await;
             lock.insert(client_address.clone(), Arc::new(Mutex::new(client_writer)));
+            // Increament the number of active connections.
+            active_connections_gauge.inc();
         }
 
         // Clone reader hash map.
         let client_writers_cloned = Arc::clone(&client_writers);
         // Clone connection pool.
         let connection_pool_cloned = connection_pool.clone();
+        // Clone messages counter prometheus metric.
+        let messages_counter_cloned = messages_counter.clone();
+        // Clone active connections gauge prometheus metric.
+        let active_connections_gauge_cloned = active_connections_gauge.clone();
         // For each incomming connection, there is a separate async task.
         tokio::spawn(async move {
             let client_address_for_removal = client_address.clone();
@@ -56,6 +69,7 @@ async fn run_server(socket_address: &str, connection_pool: SqlitePool) -> Result
                 client_reader,
                 client_writers_cloned,
                 connection_pool_cloned,
+                messages_counter_cloned
             )
             .await
             {
@@ -67,6 +81,8 @@ async fn run_server(socket_address: &str, connection_pool: SqlitePool) -> Result
 
             // After a spawned tasks comes to an end, remove writer associated with the corresponding client.
             remove_client_writer(client_address_for_removal, client_writers_for_removal).await;
+            // Decreament the number of active connections.
+            active_connections_gauge_cloned.dec();
         });
     }
 }
@@ -80,6 +96,7 @@ async fn handle_client(
     mut client_reader: OwnedReadHalf,
     client_writers: Arc<Mutex<HashMap<SocketAddr, SharedWriteHalf>>>,
     connection_pool: SqlitePool,
+    messages_counter: Counter
 ) -> Result<()> {
     // Try to authenticate user. If not successful, the connection will be dropped.
     let (user_id, _username) = match authenticate_user(
@@ -97,10 +114,12 @@ async fn handle_client(
     };
     loop {
         // Wait for data from a client.
-        //let received_bytes = receive_bytes(&mut client_reader).await.context("Failed when receiving bytes.")?;
         let received_message = receive_message(&mut client_reader)
             .await
             .context("Failed when receiving a message.")?;
+
+        // Increment the number of received messages.
+        messages_counter.inc();
 
         // Save received message in a database.
         save_message_in_database(&connection_pool, &user_id, &received_message)
@@ -329,51 +348,135 @@ async fn remove_client_writer(
 async fn main() -> Result<()> {
     env_logger::init();
 
-    // Create a database connection pool.
-    let database_url = "sqlite://server/chat_app_data.db";
-    let connection_pool = db::create_connection_pool(database_url)
-        .await
-        .context("Failed to create connection pool.")?;
-
     // Process command line arguments.
     let matches = Command::new("Server")
         .about("Runs server")
-        .arg(arg!(--address <SOCKET>).default_value("127.0.0.1:11111"))
+        .arg(
+            Arg::new("chat-socket")
+            .short('c')
+            .long("chat-socket")
+            .value_name("CHAT_SOCKET")
+            .default_value("0.0.0.0:11111")
+            .help("Socket on which the chat server should listen for incomming client connections.")
+        )
+        .arg(
+            Arg::new("http-socket")
+            .short('w')
+            .long("http-socket")
+            .value_name("HTTP_SOCKET")
+            .default_value("0.0.0.0:80")
+            .help("HTTP socket through which chat server admin page can be accessed.")
+        )
+        .arg(
+            Arg::new("db-file")
+            .short('d')
+            .long("db-file")
+            .value_name("DB_FILE")
+            .default_value("server/chat_app_data.db")
+            .help("Path to a '.db' file containing chat server sqlite database.")
+        )
+        .arg(
+            Arg::new("static-dir")
+            .short('s')
+            .long("static-dir")
+            .value_name("STATIC_DIR")
+            .default_value("server/static")
+            .help("Directory containing 'index.html' file.")
+        )
         .get_matches();
-    let socket_address = matches
-        .get_one::<String>("address")
-        .ok_or_else(|| anyhow!("There is always a value."))?;
+    let chat_socket_address = matches
+        .get_one::<String>("chat-socket")
+        .ok_or_else(|| anyhow!("There is always a value."))?
+        .clone();
+    let http_socket_address = matches
+        .get_one::<String>("http-socket")
+        .ok_or_else(|| anyhow!("There is always a value."))?
+        .clone();
+    let db_file = matches
+        .get_one::<String>("db-file")
+        .ok_or_else(|| anyhow!("There is always a value."))?
+        .clone();
+    let static_dir = matches
+        .get_one::<String>("static-dir")
+        .ok_or_else(|| anyhow!("There is always a value."))?
+        .clone();
 
-    // Run server.
-    info!("Starting server...");
-    run_server(socket_address, connection_pool)
+    // Create metrics and register them.
+    let registry = Registry::new();
+    let messages_counter = get_messages_counter()
         .await
-        .context("Server stopped running because of an error.")?;
-    info!("Exiting server...");
+        .context("Messages counter metric could not be created.")?;
+    registry
+        .register(Box::new(messages_counter.clone()))
+        .context("Failed to register messages counter metric.")?;
+    let active_connections_gauge = get_active_connections_gauge()
+        .await
+        .context("Active connections gauge metric could not be created.")?;
+    registry
+        .register(Box::new(active_connections_gauge.clone()))
+        .context("Failed to register active connections gauge metric.")?;
+
+    // Create a database connection pool.
+    let database_url = format!("sqlite://{}", db_file);
+    let connection_pool_http_server = db::create_connection_pool(&database_url)
+        .await
+        .context("Failed to create connection pool.")?;
+    let connection_pool_chat_server = connection_pool_http_server.clone();
+
+    // Run http server.
+    let http_task = tokio::spawn(async move {
+        info!("Starting http server...");
+        if let Err(e) = run_http_server(
+            &http_socket_address,
+            connection_pool_http_server,
+            &static_dir,
+            registry
+        )
+        .await
+        {
+            error!("HTTP server failed: {}", e);
+        };
+        info!("Exiting http server...");
+    });
+
+    // Run chat server.
+    let chat_task = tokio::spawn(async move {
+        info!("Starting chat server...");
+        if let Err(e) = run_server(
+            &chat_socket_address,
+            connection_pool_chat_server,
+            &messages_counter,
+            &active_connections_gauge,
+        )
+        .await
+        {
+            error!("Chat server failed: {}", e);
+        };
+        info!("Exiting chat server...");
+    });
+
+    tokio::try_join!(http_task, chat_task)?;
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use std::net::{IpAddr, Ipv4Addr};
+    use tokio::net::TcpStream;
 
     use super::*;
 
     #[tokio::test]
     async fn test_remove_client_writer() {
         let writers_to_clients: Arc<Mutex<HashMap<SocketAddr, SharedWriteHalf>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+            Arc::new(Mutex::new(HashMap::new()));
 
         let server_socket_address = "127.0.0.1:33333";
         let server_listener = TcpListener::bind(server_socket_address).await.unwrap();
         TcpStream::connect(server_socket_address).await.unwrap();
-        let (server_stream, server_socket_address) = server_listener
-            .accept()
-            .await
-            .unwrap();
+        let (server_stream, server_socket_address) = server_listener.accept().await.unwrap();
         let (_, writer) = server_stream.into_split();
-        
+
         {
             let mut lock = writers_to_clients.lock().await;
             lock.insert(server_socket_address, Arc::new(Mutex::new(writer)));

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        SELECT content\n        FROM messages\n        WHERE user_id = ?\n        ",
+  "describe": {
+    "columns": [
+      {
+        "name": "content",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "43969db227e1245dd18d922a186306a530e2ef220a9e8a178908811e5ef29a93"
+}

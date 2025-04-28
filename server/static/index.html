@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat App Admin Page</title>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+
+        main {
+            display: flex;
+            justify-content: center;
+        }
+
+        #main-container {
+            max-width: 80%;
+            min-width: 60%;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        #controls {
+            min-width: 100%;
+            margin: 2rem 0rem;
+            display: flex;
+            justify-content: space-between;
+            background: black;
+        }
+
+        #show-messages, #delete-user {
+            color: #fafafa;
+            border: 0;
+            background: black;
+            padding: 0.5rem;
+        }
+
+        #show-messages:hover, #delete-user:hover {
+            color: black;
+            border: 0;
+            background: #fafafa;
+            padding: 0.5rem;
+        }
+
+        #select-user-div {
+            color: #fafafa;
+            border: 0;
+            background: black;
+            padding: 0.5rem;
+            margin-left: auto;
+        }
+
+        #message-list {
+            max-width: 100%;
+            border: 1px solid #cccccc;
+            border-radius: 4px;
+            height: 300px;
+            overflow-y: auto;
+            background: #fafafa;
+            word-break: break-word;
+        }
+
+        .message {
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #eeeeee;
+        }
+
+        #select-user {
+            min-width: 100px;
+            color: #fafafa;
+            background: black;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <div id="main-container">
+        <h1>Chat App Admin Page</h1>
+        <div id="controls">
+            <button id="show-messages">Show Messages</button>
+            <div id="select-user-div">
+                <label for="select-user">User:</label>
+                <select id="select-user">
+                    <option disabled selected>Loading...</option>
+                </select>
+            </div>
+            <button id="delete-user">Delete User</button>
+        </div>
+        <div id="message-list"></div>
+    </div>
+    <script>
+        const userSelect = document.getElementById("select-user");
+        const showMessagesButton = document.getElementById("show-messages");
+        const deleteUserButton = document.getElementById("delete-user");
+        const messagesDisplayArea = document.getElementById("message-list");
+
+        async function loadUsers() {
+            userSelect.innerHTML = "";
+            try {
+                const res = await fetch("/api/users");
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+                }
+                const resJson = await res.json();
+                for (userPair of resJson) {
+                    const userId = userPair[0];
+                    const username = userPair[1];
+                    const option = document.createElement("option");
+                    option.value = userId;
+                    option.textContent = username
+                    userSelect.appendChild(option);
+                }
+            } catch (err) {
+                alert('Failed to load users: ' + err);
+            }
+        }
+
+        async function showMessages() {
+            messagesDisplayArea.innerHTML = "";
+            const userIdStr = userSelect.value;
+            if (!userIdStr) return;
+            const userId = parseInt(userIdStr, 10);
+            try {
+                const res = await fetch(`/api/users/${userId}/messages`)
+                const resJson = await res.json();
+                if (res.ok) {
+                    for (message of resJson) {
+                        const messageDiv = document.createElement("div");
+                        messageDiv.className = "message";
+                        messageDiv.textContent = message;
+                        messagesDisplayArea.appendChild(messageDiv);
+                    }
+                } else {
+                    alert("Failed to get user messages.");
+                }
+            } catch (err) {
+                alert(`Problem communicating with server: ${err}`);
+            }
+
+        }
+
+        async function deleteUser() {
+            const userIdStr = userSelect.value;
+            if (!userIdStr) return;
+            const userId = parseInt(userIdStr, 10);
+            try {
+                const res = await fetch(`/api/users/${userId}`, {method: "DELETE"});
+                if (res.ok) {
+                    alert("User deleted succesfully.");
+                    await loadUsers();
+                    messagesDisplayArea.innerHTML = "";
+                } else {
+                    alert("Delete failed.");
+                }
+            } catch (err) {
+                alert(`Problem communicating with server: ${err}`);
+            }
+
+        }
+
+        showMessagesButton.addEventListener("click", showMessages);
+        deleteUserButton.addEventListener("click", deleteUser);
+        window.addEventListener("load", loadUsers);
+    </script>
+</main>
+</body>
+</html>

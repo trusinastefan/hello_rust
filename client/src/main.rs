@@ -5,7 +5,7 @@ use tokio::io::AsyncWriteExt;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use clap::{arg, Command};
+use clap::{Arg, Command};
 use chrono::Local;
 use tokio::time::{Duration, timeout};
 use log::{info, error};
@@ -242,10 +242,17 @@ async fn main() -> Result<()> {
 
     let matches = Command::new("Client")
         .about("Runs client")
-        .arg(arg!(--address <SOCKET>).default_value("127.0.0.1:11111"))
+        .arg(
+            Arg::new("chat-socket")
+            .short('c')
+            .long("chat-socket")
+            .value_name("CHAT_SOCKET")
+            .required(true)
+            .help("Chat server socket to which the client should connect.")
+        )
         .get_matches();
 
-    let socket_address = matches.get_one::<String>("address").ok_or_else(|| anyhow!("There is always a value."))?;
+    let socket_address = matches.get_one::<String>("chat-socket").ok_or_else(|| anyhow!("The value is required."))?;
 
     info!("Starting client...");
     run_client(socket_address).await.context("Client stopped running because of an error.")?;

@@ -71,3 +71,74 @@ pub async fn add_message(pool: &SqlitePool, user_id: &i64, contents: &str) -> Re
     
     Ok(())
 }
+
+
+pub async fn get_messages_by_user(pool: &SqlitePool, user_id: &i64) -> Result<Vec<String>> {
+    let rec= sqlx::query!(
+        r#"
+        SELECT content
+        FROM messages
+        WHERE user_id = ?
+        "#,
+        user_id
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get messages.")?;
+    
+    let messages: Vec<String> = rec.into_iter().map(|row| row.content).collect();
+    Ok(messages)
+}
+
+
+pub async fn delete_messages_by_user(pool: &SqlitePool, user_id: &i64) -> Result<()> {
+    sqlx::query!(
+        r#"
+        DELETE FROM messages
+        WHERE user_id = ?
+        "#,
+        user_id
+    )
+    .execute(pool)
+    .await
+    .context("Failed to delete messages.")?;
+    
+    Ok(())
+}
+
+
+pub async fn delete_user(pool: &SqlitePool, user_id: &i64) -> Result<()> {
+    sqlx::query!(
+        r#"
+        DELETE FROM users
+        WHERE id = ?
+        "#,
+        user_id
+    )
+    .execute(pool)
+    .await
+    .context("Failed to delete.")?;
+    
+    Ok(())
+}
+
+
+pub async fn get_all_users(pool: &SqlitePool) -> Result<Vec<(i64, String)>> {
+    let rec= sqlx::query!(
+        r#"
+        SELECT id, username
+        FROM users
+        "#
+    )
+    .fetch_all(pool)
+    .await
+    .context("Failed to get all users.")?;
+    
+    let users: Vec<(i64, String)> = rec.into_iter().map(
+        |row| {
+            let id = row.id.ok_or(anyhow!("A user entry has id null."))?;
+            Ok((id, row.username))
+        }
+    ).collect::<Result<Vec<(i64, String)>>>().context("Something wrong with extracting data from users table.")?;
+    Ok(users)
+}
